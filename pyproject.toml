@@ -1,0 +1,11 @@
+[project]
+name = "smw-rl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "shimmy>=2.0.0",
+    "stable-baselines3[extra]>=2.7.1",
+    "stable-retro>=0.9.8",
+]
