@@ -3,9 +3,14 @@ import pygame
 import numpy as np
 import gymnasium as gym
 import cv2
+import json
+from pathlib import Path
 from gymnasium.wrappers import GrayscaleObservation, ResizeObservation, FrameStackObservation
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+
+SCRIPT_DIR = Path(__file__).parent
+GAME_FILENAME = 'SuperMarioWorld-Snes-v0'
 
 class JoypadSpaceSNES(gym.ActionWrapper):
     """
@@ -29,6 +34,7 @@ class JoypadSpaceSNES(gym.ActionWrapper):
 
     def __init__(self, env, combos):
         super().__init__(env)
+        
         self.n_buttons = env.action_space.n  # MultiBinary(n)
         self.action_space = gym.spaces.Discrete(len(combos))
         
@@ -36,27 +42,33 @@ class JoypadSpaceSNES(gym.ActionWrapper):
         self._actions = []
         for combo in combos:
             vector = np.zeros(self.n_buttons, dtype=np.int8)
+            
             for button in combo:
                 vector[self.BUTTON_MAPPING[button]] = 1
+                
             self._actions.append(vector)
 
     def action(self, action):
-        # Direct lookup, no loop at runtime
         return self._actions[action]
 
 class SkipFrame(gym.Wrapper):
     def __init__(self, env, skip):
         super().__init__(env)
+        
         self._skip = skip
         
     def step(self, action):
         total_reward = 0.0
         terminated = False
-        for i in range(self._skip):
+        
+        for _ in range(self._skip):
             obs, reward, terminated, truncated, info = self.env.step(action)
+            
             total_reward += reward
+            
             if terminated:
                 break
+        
         return obs, reward, terminated, truncated, info
     
     
@@ -71,8 +83,10 @@ class ResizeEnv(gym.ObservationWrapper):
         def observation(self, frame):
             height, width, _ = self.observation_space.shape
             frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+            
             if frame.ndim == 2:
                 frame = frame[:,:,None]
+            
             return frame
         
 class CustomRewardAndDoneEnv(gym.Wrapper):
@@ -94,16 +108,17 @@ class SMWWrapper(gym.Wrapper):
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        
-        ram = self.env.unwrapped.get_ram()
-        
+                
         if info.get('lives') < 4:
             terminated = True
+            
+        if reward > 0.0:
+            x = 7
         
         # 1. Custom Reward Logic: Reward for moving right
         # 'x' is a variable defined in the game's data.json
         current_x = info.get('x', 0)
-        reward = current_x - self.prev_x
+        reward += current_x - self.prev_x
         self.prev_x = current_x
 
         self._render_pygame(obs)
@@ -121,7 +136,7 @@ class SMWWrapper(gym.Wrapper):
 
 def make_env():
     env = retro.make(
-        game="SuperMarioWorld-Snes-v0", 
+        game=GAME_FILENAME, 
         render_mode="rgb_array"
     )
     
@@ -141,18 +156,30 @@ def make_env():
     
     return env
 
+
+def inject_custom_data():
+    custom_data_file = SCRIPT_DIR / 'custom_data.json'
+    
+    with open(custom_data_file, 'r') as f:
+        custom_data = json.load(f)
+    
+    stable_retro_data_file = Path(retro.data.path()).joinpath('stable', GAME_FILENAME, 'data.json')
+    
+    with open(stable_retro_data_file, 'w') as f:
+        json.dump(custom_data, f, indent=2)
+    
+    return
+
 def main():
-#     # Overwrite data.json with custom_data.json
-# +    retro.data.path('SuperMarioWorld-Snes-v0')
-    
-    
+    # Overwrite data.json with custom_data.json
+    # Enables tracking more info
+    inject_custom_data()
     
     env = DummyVecEnv([make_env])
     
     # We use a lower learning rate for more "consistent" training
     model = PPO("CnnPolicy", env, verbose=1, learning_rate=0.0001)
 
-    print("Training... Mario should now reset on death.")
     model.learn(total_timesteps=100000)
 
 if __name__ == "__main__":
