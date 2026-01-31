@@ -1,3 +1,4 @@
+from math import trunc
 import stable_retro as retro
 import pygame
 import numpy as np
@@ -18,7 +19,7 @@ from stable_baselines3.common.vec_env import (
     DummyVecEnv
 )
 
-import torch as th
+import torch
 from torch import nn
 
 # Import Base Callback for saving models
@@ -28,16 +29,14 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 SCRIPT_DIR = Path(__file__).parent
 GAME_FILENAME = 'SuperMarioWorld-Snes-v0'
 
-
-
 # Model Param
 CHECK_FREQ_NUMB = 10000
-TOTAL_TIMESTEP_NUMB = 5000000
+TOTAL_TIMESTEP_NUMB = 5_000_000
 LEARNING_RATE = 0.0001
 GAE = 1.0
 ENT_COEF = 0.01
 N_STEPS = 512
-GAMMA = 0.9
+GAMMA = 0.95
 BATCH_SIZE = 64
 N_EPOCHS = 10
 
@@ -118,10 +117,10 @@ class SkipFrame(gym.Wrapper):
             
             total_reward += reward
             
-            if terminated:
+            if terminated or truncated:
                 break
         
-        return obs, reward, terminated, truncated, info
+        return obs, total_reward, terminated, truncated, info
     
 class ResizeEnv(gym.ObservationWrapper):
         def __init__(self, env, size):
@@ -144,75 +143,118 @@ class CustomRewardEnv(gym.Wrapper):
     def __init__(self, env=None):
         super().__init__(env)
         
-        self.current_score = 0
-        self.current_x = 0
-        self.current_x_count = 0
         self.max_x = 0
+        self.prev_num_coins = 0
+        self.prev_num_yoshi_coins = 0
+        self.already_reached_checkpoint = False
+        self.prev_powerup_state = 0
     
     def reset(self, **kwargs):
-        self.current_score = 0
-        self.current_x = 0
-        self.current_x_count = 0
         self.max_x = 0
+        self.prev_num_coins = 0
+        self.prev_num_yoshi_coins = 0
+        self.already_reached_checkpoint = False
+        self.prev_powerup_state = 0
         
         return self.env.reset(**kwargs)
     
     def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
+        obs, score_earned, terminated, truncated, info = self.env.step(action)
+        reward = 0
         
-        reward += max(0, info['x'] - self.max_x)
+        reward += score_earned * 0.1
+
+        # Reward new progress in the level
+        current_x = info.get('x')
+        reward += max(0, current_x - self.max_x)
+        self.max_x = max(self.max_x, current_x) 
         
-        if (info['x'] - self.current_x) == 0:
-            self.current_x_count += 1
-        else:
-            self.current_x_count = 0
+        # Reward new coins collected
+        current_num_coins = info.get('coins')
+        reward += max(0, current_num_coins - self.prev_num_coins) * 5
+        self.prev_num_coins = current_num_coins
         
-        if info["endOfLevel"]:
-            reward += 500
+        # Reward new yoshi coins collected 
+        current_num_yoshi_coins = info.get('yoshiCoins')
+        reward += max(0, current_num_yoshi_coins - self.prev_num_yoshi_coins) * 20
+        self.prev_num_yoshi_coins = current_num_yoshi_coins
+        
+        # Reward reaching the checkpoint
+        if not self.already_reached_checkpoint and info.get('checkpoint'):
+            reward += 100
+            self.already_reached_checkpoint = True
+            
+        # Reward/punish based on powerup state
+        current_powerup_state = info.get('powerups')
+        if current_powerup_state != self.prev_powerup_state:
+            # Small -> Big
+            if self.prev_powerup_state == 0 and current_powerup_state == 1:
+                reward += 50
+            # Big -> Small
+            elif self.prev_powerup_state == 1 and current_powerup_state == 0:
+                reward -= 100
+            # Big -> Cape/Fire
+            elif self.prev_powerup_state == 1 and current_powerup_state in (2, 3):
+                reward += 50
+            # Cape -> Big
+            elif self.prev_powerup_state == 2 and current_powerup_state == 1:
+                reward -= 100
+            # Cape -> Fire or Fire -> Cape
+            elif (self.prev_powerup_state, current_powerup_state) in [(2, 3), (3, 2)]:
+                reward += 50
+            # Fire -> Big
+            elif self.prev_powerup_state == 3 and current_powerup_state == 1:
+                reward -= 100
+            
+            self.prev_powerup_state = current_powerup_state
+
+        
+        # Extremely reward reaching the goal
+        if info.get('endOfLevel'):
+            reward += 10000
             terminated = True
             print("GOAL")
         
-        if info["dead"] == 0:
-            reward -= 500
+        # Punish dying
+        if info.get('dead') == 0:
+            reward -= 1000
             terminated = True
-        
-        self.current_score = info["score"]
-        self.max_x = max(self.max_x, self.current_x)
-        self.current_x = info["x"]
-        
+            
+       
         return obs, reward, terminated, truncated, info
 
 
-
 class MarioNet(BaseFeaturesExtractor):
-
     def __init__(self, observation_space: gym.spaces.Box, features_dim):
-        super(MarioNet, self).__init__(observation_space, features_dim)
+        super().__init__(observation_space, features_dim)
+        
         n_input_channels = observation_space.shape[0]
+        
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(n_input_channels, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(128, 128, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
             nn.Flatten(),
         )
 
         # Compute shape by doing one forward pass
-        with th.no_grad():
-            n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
-    def forward(self, observations: th.Tensor) -> th.Tensor:
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return self.linear(self.cnn(observations))
     
 class TrainAndLoggingCallback(BaseCallback):
     def __init__(self, check_freq, save_path, reward_log_path, verbose=1):
         super().__init__(verbose)
+        
         self.check_freq = check_freq
         self.save_path = save_path
         self.reward_log_path = reward_log_path
@@ -223,21 +265,23 @@ class TrainAndLoggingCallback(BaseCallback):
 
     def _on_step(self):
         if self.n_calls % self.check_freq == 0:
-            model_path = (self.save_path / 'best_model_{}'.format(self.n_calls))
+            model_path = self.save_path / f'best_model_{self.n_calls}'
             self.model.save(model_path)
+            eval_env = self.model.get_env()
 
             total_reward = [0] * EPISODE_NUMBERS
             total_time = [0] * EPISODE_NUMBERS
             best_reward = 0
 
             for i in range(EPISODE_NUMBERS):
-                state = self.env.reset()  # reset for each new trial
+                state = eval_env.reset()  # reset for each new trial
                 done = False
                 total_reward[i] = 0
                 total_time[i] = 0
+                
                 while not done and total_time[i] < MAX_TIMESTEP_TEST:
                     action, _ = self.model.predict(state)
-                    state, reward, done, info = self.env.step(action)
+                    state, reward, done, info = eval_env.step(action)
                     total_reward[i] += reward[0]
                     total_time[i] += 1
 
@@ -245,7 +289,7 @@ class TrainAndLoggingCallback(BaseCallback):
                     best_reward = total_reward[i]
                     best_epoch = self.n_calls
 
-                state = self.env.reset()  # reset for each new trial
+                state = eval_env.reset()  # reset for each new trial
 
             print('time steps:', self.n_calls, '/', TOTAL_TIMESTEP_NUMB)
             print('average reward:', (sum(total_reward) / EPISODE_NUMBERS),
@@ -269,7 +313,9 @@ def make_env():
     ['LEFT'] # Left
     ]
     
+    # env = retro.make(game=GAME_FILENAME, render_mode="rgb_array", state='YoshiIsland1')
     env = retro.make(game=GAME_FILENAME, render_mode="rgb_array")
+
 
     env = JoypadSpaceSNES(env, SIMPLE_MOVEMENT)
     env = CustomRewardEnv(env)
@@ -322,7 +368,7 @@ def main():
     
     policy_kwargs = dict(
         features_extractor_class=MarioNet,
-        features_extractor_kwargs=dict(features_dim=512),
+        features_extractor_kwargs=dict(features_dim=1024),
     )
      
 

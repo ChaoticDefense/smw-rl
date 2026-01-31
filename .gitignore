@@ -11,3 +11,6 @@ wheels/
 
 # SNES Roms
 *.sfc
+
+# Model training
+model/*
