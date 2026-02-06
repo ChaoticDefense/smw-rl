@@ -80,7 +80,8 @@ def main():
     )
     
     model = PPO('CnnPolicy',
-                env, verbose = 0, 
+                env, 
+                verbose = 0, 
                 policy_kwargs = policy_kwargs, 
                 tensorboard_log = save_dir, 
                 learning_rate = LEARNING_RATE, 
@@ -93,7 +94,7 @@ def main():
                 device = 'cuda'
             )
 
-    model.learn(total_timesteps=TIMESTEP_PER_ENV * num_envs, callback = callback, progress_bar = True)
+    model.learn(total_timesteps = TIMESTEP_PER_ENV * num_envs, callback = callback, progress_bar = True)
 
 if __name__ == "__main__":
     main()
