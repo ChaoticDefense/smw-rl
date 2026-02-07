@@ -55,8 +55,8 @@ def main():
     inject_custom_data()
     
     # env = DummyVecEnv([make_env])
-    num_envs = 8
-    env = SubprocVecEnv([make_env for _ in range(num_envs)])
+    num_envs = 4
+    env = SubprocVecEnv([make_env(f'Trainer {i+1}') for i in range(num_envs)])
     env = VecFrameStack(env, 4, channels_order='last')
     
     # env.reset()

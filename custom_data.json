@@ -43,6 +43,14 @@
     "yoshiCoins": {
       "address": 8262690,
       "type": "<u4"
-    }
+    },
+	"marioPose": {
+	  "address": 113,
+	  "type": "|u1"
+	},
+	"hurtTimer": {
+	  "address": 5271,
+      "type": "|u1"
+	}
   }
 }

@@ -50,7 +50,7 @@ class TrainAndLoggingCallback(BaseCallback):
         self.num_episodes = num_episodes
         self.total_timesteps = total_timesteps
         
-        self.eval_env = DummyVecEnv([make_env])
+        self.eval_env = DummyVecEnv([make_env('Evaluator')])
         self.eval_env = VecFrameStack(self.eval_env, 4, channels_order='last')
         self.eval_env = VecTransposeImage(self.eval_env)
 

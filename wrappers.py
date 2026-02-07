@@ -45,10 +45,11 @@ class JoypadSpaceSNES(gym.ActionWrapper):
         return self._actions[action]
 
 class RenderEnv(gym.ObservationWrapper):
-    def __init__(self, env):
+    def __init__(self, env, windowTitle):
         super().__init__(env)
         pygame.init()
         self.screen = pygame.display.set_mode((256, 224))
+        pygame.display.set_caption(windowTitle)
         
     def observation(self, obs):
         self._render_pygame(obs)
@@ -184,35 +185,42 @@ class CustomRewardEnv(gym.Wrapper):
             reward += 5000
             terminated = True
             print("GOAL")
+
+        pose = info.get('marioPose')
+        # hurt = info.get("hurtTimer")
         
-        # Punish dying
-        if info.get('dead') == 0:
+        # if hurt > 0:
+        #     x = 7
+        # # Punish dying
+        # # if info.get('dead') == 0:
+        if pose == 9 or info.get('lives') < 4:
             reward -= 500
             terminated = True
-            
-       
+
         return obs, reward, terminated, truncated, info
     
-def make_env():
-    
-    SIMPLE_MOVEMENT = [
-    [], # NOOP
-    ['RIGHT'], # Just right
-    ['RIGHT', 'B'], # Right and jump
-    ['B'], # Jump
-    ['RIGHT', 'Y'], # Dash and right
-    ['RIGHT', 'Y', 'B'], # Dash and jump right
-    ['LEFT'] # Left
-    ]
-    
-    # env = retro.make(game=GAME_FILENAME, render_mode="rgb_array", state='YoshiIsland1')
-    env = retro.make(game='SuperMarioWorld-Snes-v0', render_mode="rgb_array", state='DonutPlains1')
+def make_env(windowTitle):
+    def _init():
+        SIMPLE_MOVEMENT = [
+        [], # NOOP
+        ['RIGHT'], # Just right
+        ['RIGHT', 'B'], # Right and jump
+        ['B'], # Jump
+        ['RIGHT', 'Y'], # Dash and right
+        ['RIGHT', 'Y', 'B'], # Dash and jump right
+        ['LEFT'] # Left
+        ]
+        
+        # env = retro.make(game=GAME_FILENAME, render_mode="rgb_array", state='YoshiIsland1')
+        env = retro.make(game='SuperMarioWorld-Snes-v0', render_mode="rgb_array", state='DonutPlains1')
 
-    env = JoypadSpaceSNES(env, SIMPLE_MOVEMENT)
-    env = CustomRewardEnv(env)
-    env = SkipFrame(env, skip=4)
-    env = RenderEnv(env)
-    env = GrayscaleObservation(env, keep_dim=True)
-    env = ResizeEnv(env, size=84)
-
-    return env
+        env = JoypadSpaceSNES(env, SIMPLE_MOVEMENT)
+        env = CustomRewardEnv(env)
+        env = SkipFrame(env, skip=4)
+        env = RenderEnv(env, windowTitle)
+        env = GrayscaleObservation(env, keep_dim=True)
+        env = ResizeEnv(env, size=84)
+        
+        return env
+    
+    return _init
