@@ -1,5 +1,6 @@
 import os
 import gymnasium as gym
+import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import (
@@ -37,8 +38,24 @@ class MarioNet(BaseFeaturesExtractor):
 
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
+    # def forward(self, observations: torch.Tensor) -> torch.Tensor:
+    #     return self.linear(self.cnn(observations))
+    
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        return self.linear(self.cnn(observations))
+        # Convert NumPy to float tensor if needed
+        if isinstance(observations, np.ndarray):
+            x = torch.as_tensor(observations, device=self.linear[0].weight.device).float()
+        else:
+            x = observations.to(self.linear[0].weight.device).float()
+            
+        # Normalize pixel values
+        x /= 255.0
+        
+        # Make sure channels-first
+        if x.shape[-1] == 4:  # your frame stack
+            x = x.permute(0, 3, 1, 2)
+            
+        return self.linear(self.cnn(x))
     
 class TrainAndLoggingCallback(BaseCallback):
     def __init__(self, check_freq, save_path, reward_log_path, num_episodes, total_timesteps, verbose=1):
@@ -50,7 +67,7 @@ class TrainAndLoggingCallback(BaseCallback):
         self.num_episodes = num_episodes
         self.total_timesteps = total_timesteps
         
-        self.eval_env = DummyVecEnv([make_env('Evaluator')])
+        self.eval_env = DummyVecEnv([make_env(0, True)])
         self.eval_env = VecFrameStack(self.eval_env, 4, channels_order='last')
         self.eval_env = VecTransposeImage(self.eval_env)
 

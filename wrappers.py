@@ -45,14 +45,20 @@ class JoypadSpaceSNES(gym.ActionWrapper):
         return self._actions[action]
 
 class RenderEnv(gym.ObservationWrapper):
-    def __init__(self, env, windowTitle):
+    def __init__(self, env, rank, evaluatorMode):
         super().__init__(env)
-        pygame.init()
-        self.screen = pygame.display.set_mode((256, 224))
-        pygame.display.set_caption(windowTitle)
+        
+        self.display_game = False
+        
+        if rank == 0 or evaluatorMode:
+            pygame.init()
+            self.display_game = True
+            self.screen = pygame.display.set_mode((256, 224))
+            self.windowTitle = pygame.display.set_caption("Evaluator" if evaluatorMode else "Trainer")
         
     def observation(self, obs):
-        self._render_pygame(obs)
+        if self.display_game:
+            self._render_pygame(obs)
         return obs
         
     def _render_pygame(self, obs):
@@ -199,7 +205,7 @@ class CustomRewardEnv(gym.Wrapper):
 
         return obs, reward, terminated, truncated, info
     
-def make_env(windowTitle):
+def make_env(rank = 0, evaluatorMode = False):
     def _init():
         SIMPLE_MOVEMENT = [
         [], # NOOP
@@ -217,7 +223,7 @@ def make_env(windowTitle):
         env = JoypadSpaceSNES(env, SIMPLE_MOVEMENT)
         env = CustomRewardEnv(env)
         env = SkipFrame(env, skip=4)
-        env = RenderEnv(env, windowTitle)
+        env = RenderEnv(env, rank, evaluatorMode)
         env = GrayscaleObservation(env, keep_dim=True)
         env = ResizeEnv(env, size=84)
         

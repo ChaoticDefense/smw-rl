@@ -39,14 +39,14 @@ def display_all_frame(state):
 def main():
     # Model Params
     CHECK_FREQ_NUM = 10000
-    TIMESTEP_PER_ENV = 5_000_000
+    TOTAL_TIMESTEPS = 20_000_000
     LEARNING_RATE = 0.0001
-    GAE = 1.0
+    GAE = 0.95
     ENT_COEF = 0.05
-    N_STEPS = 512
+    N_STEPS = 256
     GAMMA = 0.95
-    BATCH_SIZE = 64
-    N_EPOCHS = 10
+    BATCH_SIZE = 128
+    N_EPOCHS = 4
 
     # Test Params
     
@@ -55,8 +55,8 @@ def main():
     inject_custom_data()
     
     # env = DummyVecEnv([make_env])
-    num_envs = 4
-    env = SubprocVecEnv([make_env(f'Trainer {i+1}') for i in range(num_envs)])
+    num_envs = 12
+    env = SubprocVecEnv([make_env(i, False) for i in range(num_envs)])
     env = VecFrameStack(env, 4, channels_order='last')
     
     # env.reset()
@@ -72,7 +72,7 @@ def main():
     with open(reward_log_path, 'a') as f:
         print('timesteps,reward,best_reward', file=f)
 
-    callback = TrainAndLoggingCallback(check_freq = CHECK_FREQ_NUM, save_path = save_dir, reward_log_path = reward_log_path, total_timesteps = TIMESTEP_PER_ENV, num_episodes = 1)
+    callback = TrainAndLoggingCallback(check_freq = CHECK_FREQ_NUM, save_path = save_dir, reward_log_path = reward_log_path, total_timesteps = TOTAL_TIMESTEPS, num_episodes = 1)
     
     policy_kwargs = dict(
     features_extractor_class = MarioNet,
@@ -94,7 +94,7 @@ def main():
                 device = 'cuda'
             )
 
-    model.learn(total_timesteps = TIMESTEP_PER_ENV * num_envs, callback = callback, progress_bar = True)
+    model.learn(total_timesteps = TOTAL_TIMESTEPS, callback = callback, progress_bar = True)
 
 if __name__ == "__main__":
     main()
